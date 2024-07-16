@@ -12,10 +12,11 @@
 #include "ws_server.h"
 #include <stdint.h>
 #include <stdio.h>
-static int node_send = 0;
+//static int node_send = 0;
 static const char *TAG = "ws_echo_server";
 extern const unsigned char control_start[] asm("_binary_control_html_start");
 extern const unsigned char control_end[] asm("_binary_control_html_end");
+extern uint8_t speedOK;
 /*
  * Structure holding server handle
  * and internal socket fd in order
@@ -118,10 +119,10 @@ static esp_err_t echo_handler(httpd_req_t *req)
                 // Send CAN here
                 uint8_t brake_data[8];
                 memset(brake_data,0x55,8);
-                brake_data[0]=0x123;
+                brake_data[0]=0x23;
                 brake_data[1]=brake_msg->valueint;
                 printf("brake: %d\n",brake_msg->valueint);
-                twai_transmit_msg(brake_data);
+                twai_transmit_msg_Brake(brake_data);
             }
             else if (steering_msg != NULL && speed_msg != NULL)
             {
@@ -132,16 +133,18 @@ static esp_err_t echo_handler(httpd_req_t *req)
                 // Send CAN here
                 float2Bytes(eng_data,speed);
                 memset(eng_data_transmit,0x55,8);
-                memcpy(eng_data_transmit,eng_data,4);
-                twai_transmit_msg_float2bytes(eng_data_transmit);
+                memcpy(&eng_data_transmit[1],eng_data,4);
+                twai_transmit_msg_Speed(eng_data_transmit);
                 //
                 int steering = steering_msg->valueint;
                 printf("Steering: %d\n", steering);
-                // Send CAN here
-                uint8_t steer_data[8];
-                memset(steer_data,0x55,8);       
-                steer_data[0]=steering;
-                twai_transmit_msg(steer_data);
+                uint8_t stee_data[4];
+                uint8_t stee_data_transmit[8];
+                //
+                float2Bytes(stee_data,steering);
+                memset(stee_data_transmit,0x55,8);
+                memcpy(stee_data_transmit,stee_data,4);
+                twai_transmit_msg_Steering(stee_data_transmit);
             }
         }
     }
@@ -231,31 +234,31 @@ static esp_err_t stop_webserver(httpd_handle_t server)
     return httpd_stop(server);
 }
 
-static void disconnect_handler(void *arg, esp_event_base_t event_base,
-                               int32_t event_id, void *event_data)
-{
-    httpd_handle_t *server = (httpd_handle_t *)arg;
-    if (*server)
-    {
-        ESP_LOGI(TAG, "Stopping webserver");
-        if (stop_webserver(*server) == ESP_OK)
-        {
-            *server = NULL;
-        }
-        else
-        {
-            ESP_LOGE(TAG, "Failed to stop http server");
-        }
-    }
-}
+// static void disconnect_handler(void *arg, esp_event_base_t event_base,
+//                                int32_t event_id, void *event_data)
+// {
+//     httpd_handle_t *server = (httpd_handle_t *)arg;
+//     if (*server)
+//     {
+//         ESP_LOGI(TAG, "Stopping webserver");
+//         if (stop_webserver(*server) == ESP_OK)
+//         {
+//             *server = NULL;
+//         }
+//         else
+//         {
+//             ESP_LOGE(TAG, "Failed to stop http server");
+//         }
+//     }
+// }
 
-static void connect_handler(void *arg, esp_event_base_t event_base,
-                            int32_t event_id, void *event_data)
-{
-    httpd_handle_t *server = (httpd_handle_t *)arg;
-    if (*server == NULL)
-    {
-        ESP_LOGI(TAG, "Starting webserver");
-        *server = start_webserver();
-    }
-}
+// static void connect_handler(void *arg, esp_event_base_t event_base,
+//                             int32_t event_id, void *event_data)
+// {
+//     httpd_handle_t *server = (httpd_handle_t *)arg;
+//     if (*server == NULL)
+//     {
+//         ESP_LOGI(TAG, "Starting webserver");
+//         *server = start_webserver();
+//     }
+// }

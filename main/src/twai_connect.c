@@ -8,7 +8,7 @@
 #include "cJSON.h"
 
 static const char *TAG = "Twai connection";
-
+uint8_t speedOK=0;
 uint32_t num_err = 0, num_correct = 0;
 void twai_alert_all();
 void twai_install_start(Twai_Handler_Struct *Twai_s)
@@ -333,104 +333,104 @@ void log_packet(twai_message_t rx_msg)
 #endif
 }
 
-void twai_receive_task(void *arg)
-{
-    /* Mqtt handler */
-    MQTT_Handler_Struct *mqtt_h = (MQTT_Handler_Struct *)arg;
-    /* Twai receive buffer for message multiple frame */
-    twai_rx_msg *twai_rx_buf = pvPortMalloc(MAX_NODE_NUMBER * sizeof(twai_rx_msg));
+// void twai_receive_task(void *arg)
+// {
+//     /* Mqtt handler */
+//     MQTT_Handler_Struct *mqtt_h = (MQTT_Handler_Struct *)arg;
+//     /* Twai receive buffer for message multiple frame */
+//     twai_rx_msg *twai_rx_buf = pvPortMalloc(MAX_NODE_NUMBER * sizeof(twai_rx_msg));
 
-    id_type_msg type_id;
-    uint8_t node_transmit_id;
-    if (twai_rx_buf == NULL)
-    {
-        vTaskDelete(NULL);
-    }
-    /* Init for buffer */
-    memset(twai_rx_buf, 0, MAX_NODE_NUMBER * sizeof(twai_rx_msg));
-    twai_message_t rx_msg = {0};
+//     id_type_msg type_id;
+//     uint8_t node_transmit_id;
+//     if (twai_rx_buf == NULL)
+//     {
+//         vTaskDelete(NULL);
+//     }
+//     /* Init for buffer */
+//     memset(twai_rx_buf, 0, MAX_NODE_NUMBER * sizeof(twai_rx_msg));
+//     twai_message_t rx_msg = {0};
 
-    while (1)
-    {
-        esp_err_t ret = twai_receive(&rx_msg, portMAX_DELAY);
-        if (ret != ESP_OK)
-        {
-            ESP_LOGE(TAG, "Receive failed with error %d", ret);
-        }
-        else
-            ESP_LOGI(TAG, "Msg received from %ld", rx_msg.identifier);
-        log_packet(rx_msg);
-        node_transmit_id = rx_msg.data[0];
-        type_id = decode_id(rx_msg.identifier);
-        if (type_id.frame_type == ID_END_FRAME && twai_rx_buf[node_transmit_id].current_buffer_len == 0)
-        {
-#ifdef CHECK_MSG_CRC
-            if (rx_msg.data[rx_msg.data[1] - 1] != crc_8(&rx_msg.data[2], rx_msg.data[1] - 1))
-            {
-                num_err++;
-            }
-            else
-            {
-                rx_msg.data[rx_msg.data[1] - 1] = (uint8_t)'\0';
-#endif
-                cJSON *root;
-                root = cJSON_CreateObject();
-                cJSON_AddNumberToObject(root, "node_id", node_transmit_id);
-                cJSON_AddNumberToObject(root, "id_msg", type_id.msg_type);
-                cJSON_AddNumberToObject(root, "id_target", type_id.target_type);
-                cJSON_AddStringToObject(root, "msg", (char *)&rx_msg.data[2]);
-                char *rendered = cJSON_Print(root);
+//     while (1)
+//     {
+//         esp_err_t ret = twai_receive(&rx_msg, portMAX_DELAY);
+//         if (ret != ESP_OK)
+//         {
+//             ESP_LOGE(TAG, "Receive failed with error %d", ret);
+//         }
+//         else
+//             ESP_LOGI(TAG, "Msg received from %ld", rx_msg.identifier);
+//         log_packet(rx_msg);
+//         node_transmit_id = rx_msg.data[0];
+//         type_id = decode_id(rx_msg.identifier);
+//         if (type_id.frame_type == ID_END_FRAME && twai_rx_buf[node_transmit_id].current_buffer_len == 0)
+//         {
+// #ifdef CHECK_MSG_CRC
+//             if (rx_msg.data[rx_msg.data[1] - 1] != crc_8(&rx_msg.data[2], rx_msg.data[1] - 1))
+//             {
+//                 num_err++;
+//             }
+//             else
+//             {
+//                 rx_msg.data[rx_msg.data[1] - 1] = (uint8_t)'\0';
+// #endif
+//                 cJSON *root;
+//                 root = cJSON_CreateObject();
+//                 cJSON_AddNumberToObject(root, "node_id", node_transmit_id);
+//                 cJSON_AddNumberToObject(root, "id_msg", type_id.msg_type);
+//                 cJSON_AddNumberToObject(root, "id_target", type_id.target_type);
+//                 cJSON_AddStringToObject(root, "msg", (char *)&rx_msg.data[2]);
+//                 char *rendered = cJSON_Print(root);
 
-                /* This frame is the single frame */
-                // twai_to_mqtt_transmit(mqtt_h, rx_msg.data[0], rendered);
-                cJSON_Delete(root);
-                free(rendered);
-                log_packet(rx_msg);
-#ifdef CHECK_MSG_CRC
-                num_correct++;
-            }
-#if LOG_ENABLE_TWAI == 1
-            // ESP_LOGW(TAG, "Number error msg: %d, number correct msg: %d", num_err, num_correct);
-#endif
-#endif
-        }
-        else
-        {
-/* This frame is the multi frame */
-#ifdef DEBUG
-            log_packet(rx_msg);
-#endif
-            /* Disengage all redundant frame */
-            if (type_id.frame_type == ID_FIRST_FRAME && twai_rx_buf[node_transmit_id].current_buffer_len != 0)
-                twai_rx_buf[node_transmit_id].current_buffer_len = 0;
-#ifdef DEBUG
-            ESP_LOGW(TAG, "Add packet into buffer, from node: %d.", node_transmit_id);
-#endif
-            /* Push frame to buffer */
-            if (type_id.frame_type - 1 == twai_rx_buf[node_transmit_id].current_buffer_len || type_id.frame_type == ID_END_FRAME)
-            {
-                twai_rx_buf[node_transmit_id].rx_buffer_msg[twai_rx_buf[node_transmit_id].current_buffer_len] = rx_msg;
-                twai_rx_buf[node_transmit_id].current_buffer_len++;
-            }
-            if (type_id.frame_type == ID_END_FRAME)
-            {
-/* This is last frame of message */
-#ifdef DEBUG
-                ESP_LOGW(TAG, "Start graft packet: %d.", node_transmit_id);
-#endif
+//                 /* This frame is the single frame */
+//                 // twai_to_mqtt_transmit(mqtt_h, rx_msg.data[0], rendered);
+//                 cJSON_Delete(root);
+//                 free(rendered);
+//                 log_packet(rx_msg);
+// #ifdef CHECK_MSG_CRC
+//                 num_correct++;
+//             }
+// #if LOG_ENABLE_TWAI == 1
+//             // ESP_LOGW(TAG, "Number error msg: %d, number correct msg: %d", num_err, num_correct);
+// #endif
+// #endif
+//         }
+//         else
+//         {
+// /* This frame is the multi frame */
+// #ifdef DEBUG
+//             log_packet(rx_msg);
+// #endif
+//             /* Disengage all redundant frame */
+//             if (type_id.frame_type == ID_FIRST_FRAME && twai_rx_buf[node_transmit_id].current_buffer_len != 0)
+//                 twai_rx_buf[node_transmit_id].current_buffer_len = 0;
+// #ifdef DEBUG
+//             ESP_LOGW(TAG, "Add packet into buffer, from node: %d.", node_transmit_id);
+// #endif
+//             /* Push frame to buffer */
+//             if (type_id.frame_type - 1 == twai_rx_buf[node_transmit_id].current_buffer_len || type_id.frame_type == ID_END_FRAME)
+//             {
+//                 twai_rx_buf[node_transmit_id].rx_buffer_msg[twai_rx_buf[node_transmit_id].current_buffer_len] = rx_msg;
+//                 twai_rx_buf[node_transmit_id].current_buffer_len++;
+//             }
+//             if (type_id.frame_type == ID_END_FRAME)
+//             {
+// /* This is last frame of message */
+// #ifdef DEBUG
+//                 ESP_LOGW(TAG, "Start graft packet: %d.", node_transmit_id);
+// #endif
 
-                twai_rx_buf[node_transmit_id].graft_buffer_len = twai_rx_buf[node_transmit_id].current_buffer_len;
-                twai_rx_msg graft_buffer_rx_msg = twai_rx_buf[node_transmit_id];
-                // graft_buffer_rx_msg.mqtt_handler = mqtt_h;
-                twai_rx_buf[node_transmit_id].current_buffer_len = 0;
-                // xTaskCreatePinnedToCore(twai_graft_packet_task, "TWAI_tx_single", 4096, &graft_buffer_rx_msg, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
-                twai_graft_packet_task(&graft_buffer_rx_msg);
-            }
-        }
-        vTaskDelay(pdMS_TO_TICKS(200));
-    }
-    vTaskDelete(NULL);
-}
+//                 twai_rx_buf[node_transmit_id].graft_buffer_len = twai_rx_buf[node_transmit_id].current_buffer_len;
+//                 twai_rx_msg graft_buffer_rx_msg = twai_rx_buf[node_transmit_id];
+//                 // graft_buffer_rx_msg.mqtt_handler = mqtt_h;
+//                 twai_rx_buf[node_transmit_id].current_buffer_len = 0;
+//                 // xTaskCreatePinnedToCore(twai_graft_packet_task, "TWAI_tx_single", 4096, &graft_buffer_rx_msg, RX_TASK_PRIO, NULL, tskNO_AFFINITY);
+//                 twai_graft_packet_task(&graft_buffer_rx_msg);
+//             }
+//         }
+//         vTaskDelay(pdMS_TO_TICKS(200));
+//     }
+//     vTaskDelete(NULL);
+// }
 void log_binary(uint16_t number)
 {
     int bits = sizeof(number) * 8;
@@ -515,7 +515,20 @@ void twai_transmit_single(void *arg)
     message.flags=TWAI_MSG_FLAG_NONE;
 
 }
-void twai_transmit_msg(uint8_t *Data)
+void twai_transmit_msg_Brake(uint8_t *Data)
+{
+    twai_message_t message;
+    message.identifier = 0x112;
+    message.flags=TWAI_MSG_FLAG_NONE;
+    message.data_length_code = 8;
+    memcpy(message.data,Data,8);
+    if (twai_transmit(&message, portMAX_DELAY) == ESP_OK) {
+    printf("transmission\n");
+    } else {
+    printf("Failed to queue message for transmission\n");
+    }
+}
+void twai_transmit_msg_Steering(uint8_t *Data)
 {
     twai_message_t message;
     message.identifier = 0x102;
@@ -528,14 +541,16 @@ void twai_transmit_msg(uint8_t *Data)
     printf("Failed to queue message for transmission\n");
     }
 }
-void twai_transmit_msg_float2bytes(uint8_t *Data){
+void twai_transmit_msg_Speed(uint8_t *Data){
  twai_message_t message;
-    message.identifier = 0x102;
+    message.identifier = 0x112;
     message.flags=TWAI_MSG_FLAG_NONE;
     message.data_length_code = 8;
     memcpy(message.data,Data,8);
+    message.data[0]=0x34;
     if (twai_transmit(&message, portMAX_DELAY) == ESP_OK) {
     printf("transmission\n");
+    speedOK=1;
     } else {
     printf("Failed to queue message for transmission\n");
     }
